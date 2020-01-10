@@ -10,8 +10,8 @@ namespace clas12 {
 
   mesonex_trigger::mesonex_trigger(clas12reader& c12){
     _superlayer_sector_thres = 5;
-    _ftof_pcal_distance = 4;
-    _pcal_cluster_energy_threshold = 0.01; //MeV?
+    _ftof_pcal_distance = 3;
+    _pcal_cluster_energy_threshold = 0.01; //GeV?
     _idx_TBHits = c12.addBank("TimeBasedTrkg::TBHits");
     _TBHits = c12.getBank(_idx_TBHits);	
 
@@ -62,7 +62,7 @@ namespace clas12 {
 	sectors_pass+=1;
       }
     }
-    return sectors_pass>0; //true if any sectors have n superlayers hit above threshold
+    return sectors_pass>1; //true if any sectors have n superlayers hit above threshold
   }
 
   bool mesonex_trigger::pcal_cluster_energy(){
@@ -73,9 +73,9 @@ namespace clas12 {
     
     //loop over clusters
     for(int j=0;j<nECALclu;j++){   
-      auto id       = _PCAL->getShort(_id_ECAL_id, j);
-      auto layer    = _PCAL->getShort(_id_ECAL_layer, j);
-      float energy   = _PCAL->getFloat(_id_ECAL_energy, j); 
+      auto id      = _PCAL->getShort(_id_ECAL_id, j);
+      auto layer   = _PCAL->getShort(_id_ECAL_layer, j);
+      float energy = _PCAL->getFloat(_id_ECAL_energy, j); 
       if((0<layer) && (layer<=3) && (energy>=_pcal_cluster_energy_threshold)){
       	trigger+=1;
       }
