@@ -102,7 +102,7 @@ The clas12reader class performs the correlation of particle and detector inofmat
 
          clas12reader c12("file.hipo",{0,1,6});
 
-You can insepct the code [$CLAS12ROOT/RunRoot/Ex1_CLAS12Reader.C](https://github.com/jeffersonlab/clas12root/blob/master/RunRoot/Ex1_CLAS12Reader.C) for more guidance on how to use it.
+You can inspect the code [$CLAS12ROOT/RunRoot/Ex1_CLAS12Reader.C](https://github.com/jeffersonlab/clas12root/blob/master/RunRoot/Ex1_CLAS12Reader.C) for more guidance on how to use it.
 
 To run:
 
@@ -283,7 +283,7 @@ Once this is complete you should open the notebook HipoProof.ipynb and process t
 
 The clas12writer class allows you to write out specific events to a new hipo file. The idea behind this is to avoid repeating the same event selection everytime you want to access information about a specific set of events. The writer is assigned a clas12reader from which it gets the event information, and is initialised with the desired location for the outputted hipo file. You can also choose not to write out certain banks to speed the process up.
 
-You can insepct the code [$CLAS12ROOT/RunRoot/Ex5_CLAS12Writer.C](https://github.com/jeffersonlab/clas12root/blob/master/RunRoot/Ex1_CLAS12Writer.C) for more guidance on how to use it.
+You can inspect the code [$CLAS12ROOT/RunRoot/Ex5_CLAS12Writer.C](https://github.com/jeffersonlab/clas12root/blob/master/RunRoot/Ex1_CLAS12Writer.C) for more guidance on how to use it.
 
 To run:
 
