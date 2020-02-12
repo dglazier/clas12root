@@ -2,7 +2,7 @@ cp $HIPO/hipo4/*.h hipo4/.
 cp $HIPO/hipo4/*.cpp hipo4/.
 mkdir build
 cd build
-cmake ../
+cmake3 ../
 make
-cmake ../
+cmake3 ../
 make install
