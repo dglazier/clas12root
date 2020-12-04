@@ -1,10 +1,4 @@
 /*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
-
-/*
  * File:   clas12reader.h
  * Author: dglazier
  *
@@ -14,6 +8,7 @@
 #define CLAS12READER_H
 
 #include "clas12defs.h"
+#include "clas12databases.h"
 #include "reader.h"
 #include "particle.h"
 #include "ftbparticle.h"
@@ -36,8 +31,9 @@
 #include "region_fdet.h"
 #include "region_cdet.h"
 #include "region_ft.h"
+#include "region_band.h"
 #include "scaler_reader.h"
-
+#include "rcdb_vals.h"
 #include "dictionary.h"
 
 #include <algorithm>
@@ -45,6 +41,13 @@
 #include <string>
 #include <iostream>
 
+#ifdef RCDB_MYSQL
+   #include "rcdb_reader.h"
+#endif
+
+//#ifdef CLAS_QADB
+   #include "qadb_reader.h"
+//#endif
 
 namespace clas12 {
   using std::cout;
@@ -73,6 +76,7 @@ namespace clas12 {
     
     std::vector<hipo::bank* > getAllBanksPtrs(){return _allBanks;}
     hipo::dictionary& getDictionary(){return _factory;}
+    std::string getFilename(){return _filename;}
     
     void addARegionFDet(){
       //Forward detector needs particles, calorimeter, scintillator,
@@ -93,6 +97,12 @@ namespace clas12 {
        region_ft_uptr  reg{new region_ft{_bparts.get(),_bftbparts.get(),_bcovmat.get(),_bcal.get(),_bscint.get(),_btrck.get(),_btraj.get(),_bcher.get(),_bft.get(),_bevent.get()}};
        if(_useFTBased)reg->useFTBPid();
       _rfts.push_back(std::move(reg));
+     }
+  void addARegionBAND(){
+      //Forward tagger needs particles and forward tagger
+       region_band_uptr  reg{new region_band{_bparts.get(),_bftbparts.get(),_bcovmat.get(),_bcal.get(),_bscint.get(),_btrck.get(),_btraj.get(),_bcher.get(),_bft.get(),_bevent.get()}};
+       if(_useFTBased)reg->useFTBPid();
+      _rbands.push_back(std::move(reg));
      }
 
 
@@ -149,6 +159,10 @@ namespace clas12 {
       long pattern = _brunconfig->getTrigger();
       return ( pattern & (1<<k)) != 0;
     }
+    bool checkVTPTriggerBit(uint k){
+      long pattern = _bvtp->makeVTPTriggers();
+      return ( pattern & (1<<k)) != 0;
+    }
 
     scalerreader_ptr scalerReader(){
       if(_scalReader.get()) return _scalReader.get();
@@ -159,13 +173,31 @@ namespace clas12 {
     double getRunBeamCharge() const noexcept{ return _runBeamCharge;}
     double getCurrApproxCharge(){return _runBeamCharge*_nevent/_reader.getEntries();}
 
-    protected:
+    void summary(){
+      std::cout<<"for file "<<_filename<<"\n   read "<<_nevent<<" events from which "<<_nselected<< " passed filtering conditions."<<" The beam charge to this point in the file was "<<getCurrApproxCharge()<<std::endl;
+    }
+    
+    void getStructure(hipo::bank* bank){
+      if(_isRead==false)
+	hipoRead();
+      _event.getStructure(*bank);
+    }
+
+    //rcdb
+    static int readQuickRunConfig(const std::string& filename);
+    static int tryTaggRunConfig(const std::string& filename, int tag);
+    
+  
+    void setEntries(long n){_nToProcess = n;}
+
+  protected:
 
     void initReader();
     
     
     private:
 
+    
     void hipoRead(){
       _reader.read(_event);
       _isRead=true;
@@ -174,55 +206,60 @@ namespace clas12 {
     std::string _filename;
     
     //reader
-    hipo::reader     _reader;
-    hipo::event      _event;
-    hipo::dictionary  _factory;
+    hipo::reader     _reader;//!
+    hipo::event      _event;//!
+    hipo::dictionary  _factory;//!
 
     //DST banks
-    helonline_uptr  _bhelonline;
-    helflip_uptr  _bhelflip;
-    runconfig_uptr  _brunconfig;
-    event_uptr  _bevent;
-    ftbevent_uptr  _bftbevent;
-    par_uptr _bparts;
+    helonline_uptr  _bhelonline;//!
+    helflip_uptr  _bhelflip;//!
+    runconfig_uptr  _brunconfig;//!
+    event_uptr  _bevent;//!
+    ftbevent_uptr  _bftbevent;//!
+    par_uptr _bparts;//!
     //    std::unique_ptr<clas12::particle> _ownbparts;
-    ftbpar_uptr _bftbparts;
-    mcpar_uptr _bmcparts;
-    covmat_uptr _bcovmat;
-    cal_uptr  _bcal;
-    scint_uptr _bscint;
-    trck_uptr _btrck;
-    traj_uptr _btraj;
-    cher_uptr _bcher;
-    ft_uptr _bft;
-    vtp_uptr _bvtp;
+    ftbpar_uptr _bftbparts;//!
+    mcpar_uptr _bmcparts;//!
+    covmat_uptr _bcovmat;//!
+    cal_uptr  _bcal;//!
+    scint_uptr _bscint;//!
+    trck_uptr _btrck;//!
+    traj_uptr _btraj;//!
+    cher_uptr _bcher;//!
+    ft_uptr _bft;//!
+    vtp_uptr _bvtp;//!
 
 
     
-    std::vector<std::unique_ptr<hipo::bank> > _addBanks; //owns additional banks
-    std::vector<hipo::bank* > _allBanks; 
+    std::vector<std::unique_ptr<hipo::bank> > _addBanks; //!owns additional banks
+    std::vector<hipo::bank* > _allBanks; //!
     
     //Detector region vectors,
     //each particle in an event will have
     //one associated, these vectors own the ptrs
-    std::vector<region_fdet_uptr> _rfdets;
-    std::vector<region_cdet_uptr> _rcdets;
-    std::vector<region_ft_uptr> _rfts;
+    std::vector<region_fdet_uptr> _rfdets;//!
+    std::vector<region_cdet_uptr> _rcdets;//!
+    std::vector<region_ft_uptr> _rfts;//!
+    std::vector<region_band_uptr> _rbands;//!
 
     //this vector links to raw ptrs, does not own
-    std::vector<region_part_ptr> _detParticles;
+    std::vector<region_part_ptr> _detParticles;//!
 
-
+     
     double _runBeamCharge{0};
     long _nevent{0};
+    long _nselected{0};
+    long _nToProcess{-1};
     ushort _nparts{0};
     ushort _n_rfdets{0};
     ushort _n_rcdets{0};
     ushort _n_rfts{0};
+    ushort _n_rbands{0};
 
     std::vector<short> _pids;
     bool _isRead{false};
-
+    //bool _rcdbQueried=false;
+    
     //members that need copied in constructor
     scalerreader_uptr _scalReader;
     std::vector<short> _givenPids;
@@ -230,6 +267,47 @@ namespace clas12 {
     std::map<short,short> _pidSelectExact;
     bool _zeroOfRestPid{false};
     bool _useFTBased{false};
+
+     
+    ///////////////////////////////DB
+  private:
+    int _runNo{0};
+    clas12databases *_db={nullptr}; //
+
+    bool _applyQA=false;
+    bool _connectDB=false;
+    
+  public:
+
+    //Database stuff
+    void connectDataBases(clas12databases *db);
+    //void connectDataBases();
+
+    ccdb_reader* ccdb()const {return _db->cc();}
+    rcdb_reader* rcdb()const {return _db->rc();}
+    qadb_reader* qadb()const {return _db->qa();}
+
+    clas12databases& db(){return *_db;};
+    
+    //clasqaDB   
+    void applyQA() {
+      // if(_db)
+	if( _db->qa() )
+	  _applyQA=true;
+
+      if( _applyQA==false){
+	std::cout<<"Warning, clas12reader  applyQA() not valid"<<std::endl;
+      }
+    }
+   
+  
+    //  const rcdb_vals& getRcdbVals(){return _rcdbVals;}
+    //void setRcdbVals(const rcdb_vals& vals){_rcdbVals=vals;}
+
+    
+  private:
+ ///////////////////////////////
+
    };
   //helper functions
   
@@ -239,7 +317,7 @@ namespace clas12 {
     Cont container_filter(const Cont &container, Pred predicate){
     Cont result;
     std::copy_if(container.begin(),container.end(),std::back_inserter(result), predicate);
-    return std::move(result);
+    return result;
   }
 
 }

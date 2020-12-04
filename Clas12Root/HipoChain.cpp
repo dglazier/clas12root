@@ -1,16 +1,16 @@
+#include <TError.h>
+#include <TFile.h>
 #include "HipoChain.h"
 #include "reader.h"
+#include "clas12reader.h"
 
 namespace clas12root {
-
+  
   HipoChain::HipoChain(): TNamed("HIPOFILES","A chain of hipo files"){
 
     _ListOfFiles=_tchain.GetListOfFiles();
   }
   
-  // HipoChain::~HipoChain(){
-  // }
-
   
   void HipoChain::Add(TString name){
 
@@ -28,6 +28,7 @@ namespace clas12root {
     //loop over files and get the number of records
     for(auto i=0;i<nfiles;++i){
       hipo::reader hiporeader;
+      hiporeader.setTags(_readerTags);
       hiporeader.open(GetFileName(i));
       _Nrecords+=hiporeader.getNRecords();
       _fileRecords.push_back(hiporeader.getNRecords());
@@ -52,29 +53,108 @@ namespace clas12root {
   }
   
   Bool_t HipoChain::Next(){
-    auto more = _c12->next();
+    bool more = kFALSE;
+
+    if( _c12.get() )  more = _c12->next();
     if(more) return kTRUE;
-    // if(_c12.get()==nullptr)
-    if(_idxFile>0)_totBeamCharge+=_c12->getRunBeamCharge();
+   //When file opened add beam charge _c12.get()==nullptr when files are finished
+    if(_idxFile>0&&_c12.get())_totBeamCharge+=_c12->getRunBeamCharge();
     if(NextFile()==false) return kFALSE;
     more = _c12->next();
     if(more) return kTRUE;
     
     //no more delete reader
     _c12.reset();
+    _c12ptr=nullptr;
     //check if another file
     return Next();
     
   }
   
   Bool_t HipoChain::NextFile(){
+    /////Warning any changes to this function should
+    ////also be considered for  HipoSelector::Process
     std::cout<<"HipoChain::NextFile() "<<_idxFile<<" out of "<<GetNFiles()<<std::endl;
    if(_idxFile>=GetNFiles())
       return kFALSE;//no more files
     std::cout<<"HipoChain::NextFile() "<<GetFileName(_idxFile)<<std::endl;
     //open next file
-   _c12.reset(new clas12::clas12reader{*_c12.get(),GetFileName(_idxFile++).Data(),_readerTags});
+    // _c12.reset(new clas12::clas12reader{*_c12.get(),GetFileName(_idxFile++).Data(),_readerTags});
+   _c12.reset(new clas12::clas12reader{*GetC12Reader(),GetFileName(_idxFile++).Data(),_readerTags});
+   ConnectDataBases();
+   //if there is a root rcdb file use it
+   //if(_rcdbFileName.Length())_c12->setRcdbVals(FetchRunRcdb(_c12->getFilename()));
+   
     _c12ptr = _c12.get();	
     return kTRUE;
   }
+
+
+  clas12::clas12reader* HipoChain::GetC12Reader() {
+      if( (_c12ptr=_c12.get()) )
+	return _c12ptr;
+      _c12.reset(new clas12::clas12reader{""});
+      ConnectDataBases();
+      _c12ptr = _c12.get();
+      return  _c12ptr;
+    }
+
+
+
+  /////////////////////////////////////////////////////
+  /// Get the rcdb info for all the files in the chain 
+  void HipoChain::WriteRcdbData(TString filename){
+
+    _rcdbFileName=filename;
+    
+ #ifdef CLAS_RCDB
+    std::cout<<"HipoChain "<<std::endl;
+    auto rcdbFile=std::unique_ptr<TFile>{TFile::Open(filename,"recreate")};
+    clas12::rcdb_reader rc{clas12::clas12databases().rcdbPath()}; //initialise rcdb_reader
+  
+    auto nfiles=GetNFiles();
+    //loop over files and get the rcdb data
+    for(auto i=0;i<nfiles;++i){
+      auto runNb=clas12::clas12reader::readQuickRunConfig(GetFileName(i).Data());
+      auto runName = Form("%d",runNb);
+      auto vals=std::unique_ptr<clas12root::TRcdbVals>{new clas12root::TRcdbVals(rc.readAll(runNb,runName))};
+      //auto vals=new clas12root::TRcdbVals(rc.readAll(runNb,GetFileName(i).Data()));
+
+      vals->Write();
+    }
+    rcdbFile->ls();
+  
+#endif
+    
+  }
+  /*
+  ////////////////////////////////////////////////////////////
+  ///Get a copy of the rcdb values for run number runNb,
+  ///from file fname created previously by WriteRcdbData
+  //#include ""
+  clas12::rcdb_vals HipoChain::FetchRunRcdb(const TString& datafile){
+#ifdef CLAS_RCDB
+
+    //make file and list unique_ptr so deleted when we return
+    auto rcdbFile=std::unique_ptr<TFile>{TFile::Open(_rcdbFileName)};
+    if(rcdbFile.get()==nullptr){
+      Warning("HipoChain::FetchRunRcdb ",Form("No rcdb root file provided to the chain :  %s",_rcdbFileName.Data()),"");
+      return clas12::rcdb_vals();
+    }
+    auto keys= rcdbFile->GetListOfKeys();
+    for(const auto& key:*keys){
+      //the rcdb_vals Title is mapped to the data file name
+      if(TString(key->GetTitle())==TString(datafile)){
+	auto vals=std::unique_ptr<TRcdbVals>{dynamic_cast<TRcdbVals*>(rcdbFile->Get(key->GetName()))};
+	if(vals.get())
+	  return vals.get()->_data;
+      }
+    }
+    Warning("HipoChain::FetchRunRcdb ",Form("run file %s not found in list in file %s",datafile.Data(),_rcdbFileName.Data()),"");
+
+#endif
+    //no rcdb     
+    return clas12::rcdb_vals();
+  }
+  */
 }

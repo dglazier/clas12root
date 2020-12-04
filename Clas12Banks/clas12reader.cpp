@@ -5,21 +5,30 @@
  */
 
 #include "clas12reader.h"
+#include "vtp.h"
 
 namespace clas12 {
 
-  clas12reader::clas12reader(std::string filename,std::vector<long> tags):_filename(filename){
+  clas12reader::clas12reader(std::string filename,std::vector<long> tags):
+    _filename(filename){
+
     cout<<" clas12reader::clas12reader reading "<<filename.data()<<endl;
     _reader.setTags(tags);
- 
+    
+     
     if(_filename.empty()==false)initReader();
   }
   ///////////////////////////////////////////////////
   ///copy constructor
   ///opens a new reader
   ///Can give alternative filename
-  clas12reader::clas12reader(const clas12reader &other,std::string filename,std::vector<long> tags):_filename(filename){
-    cout<<" clas12reader::clas12reader reading "<<filename.data()<<endl;
+  clas12reader::clas12reader(const clas12reader &other,std::string filename,
+			     std::vector<long> tags):
+    _filename(filename)
+    //_db{other._db}
+  {
+    
+    cout<<" COPY clas12reader::clas12reader reading "<<filename.data()<<endl;
 
     //if default filename take same file as original
     if(_filename.empty())_filename=other._filename;
@@ -32,13 +41,17 @@ namespace clas12 {
     _pidSelect=other._pidSelect;
     _pidSelectExact=other._pidSelectExact;
     _zeroOfRestPid=other._zeroOfRestPid;
-    _useFTBased=other._useFTBased;;
+    _useFTBased=other._useFTBased;
+    _nToProcess=other._nToProcess;
 
+    //if(other._connectDB)connectDataBases(other._db); //give databases the run number
+    _applyQA=other._applyQA;
   }
-  void clas12reader::initReader(){
-   _reader.open(_filename.data()); //keep a pointer to the reader
 
-    // hipo::dictionary  factory;
+  void clas12reader::initReader(){
+    _reader.open(_filename.data()); //keep a pointer to the reader
+
+      // hipo::dictionary  factory;
     _reader.readDictionary(_factory);
 
     //initialise banks pointers
@@ -68,11 +81,76 @@ namespace clas12 {
       _bcher.reset(new cherenkov{_factory.getSchema("REC::Cherenkov")});
     if(_factory.hasSchema("REC::ForwardTagger"))
       _bft.reset(new forwardtagger{_factory.getSchema("REC::ForwardTagger")});
+    
+    if(_factory.hasSchema("RAW::vtp"))
+      _bvtp.reset(new clas12::vtp{_factory.getSchema("RAW::vtp")});
+    
+    if(_factory.hasSchema("HEL::online"))
+      _bhelonline.reset(new clas12::helonline{_factory.getSchema("HEL::online")});
 
     makeListBanks();
 
   }
 
+  ///////////////////////////////////////////////////////////////////////
+  ///Basically get the run number!
+  ///will open and close a hipo file
+  int  clas12reader::readQuickRunConfig(const std::string& filename) {
+
+
+    //There are some inconsistencies on which the RunConfig tag is...
+    //So just in case...
+    int rnb=tryTaggRunConfig( filename,1);
+    if(rnb==0) return tryTaggRunConfig( filename,0);
+    else return rnb;
+
+  }
+     
+  int  clas12reader::tryTaggRunConfig(const std::string& filename, int tag) {
+   if(filename.empty()==true) return 0;
+    
+    hipo::reader     areader;
+    hipo::event      anevent;
+    hipo::dictionary  afactory;
+    
+    areader.setTags(tag);
+    areader.open(filename.data()); //keep a pointer to the reader
+    areader.readDictionary(afactory);
+    
+    clas12::runconfig  arunconf(afactory.getSchema("RUN::config"));
+
+    int runNo=0;
+    while(runNo==0){
+      if(areader.next()==false) break;
+      areader.read(anevent);
+      anevent.getStructure(arunconf);
+
+      runNo=arunconf.getRun();
+    }
+    std::cout<<"Found run number : "<<runNo<<"  in tag "<<tag<<std::endl;
+    return runNo;
+  }
+  ///////////////////////////////////////////////////////////////////////
+  ///Function to query RCDB and record most relevant run conditions.
+  ///This is only called once to avoid overloading the database.
+  /*void clas12reader::queryRcdb(){
+    if(_rcdbQueried==true) return; //only allowed to call once
+    _rcdbQueried=true;
+
+#ifdef RCDB_MYSQL
+    if(_runNo==0){
+      _runNo=readQuickRunConfig(_filename);
+    }
+    
+    rcdb_reader rc("mysql://rcdb@clasdb.jlab.org/rcdb"); //initialise rcdb_reader
+    
+    //For full list see https://clasweb.jlab.org/rcdb/conditions/
+    _rcdbVals = rc.readAll(_runNo,getFilename());
+ #endif
+    //rcdb connection closed when rc goes out of scope here 
+  }
+  */
+  
   ///////////////////////////////////////////////////////
   ///read the data
   void clas12reader::clearEvent(){
@@ -80,6 +158,7 @@ namespace clas12 {
     _n_rfdets=0;
     _n_rcdets=0;
     _n_rfts=0;
+    _n_rbands=0;
     
     _detParticles.clear();
     _pids.clear();
@@ -103,7 +182,6 @@ namespace clas12 {
     _pids.clear();
     _pids.reserve(_nparts);
  
-    
     //Loop over particles and find their Pid
     for(ushort i=0;i<_nparts;i++){
       if(!_useFTBased){
@@ -135,7 +213,13 @@ namespace clas12 {
     }
     //Special run banks
     if(_brunconfig.get())_event.getStructure(*_brunconfig.get());
-   
+    //check if event has QA requirements and those were met
+    if(_applyQA&&_db->qa()!=nullptr){
+      if(!_db->qa()->passQAReqs(_brunconfig->getEvent())){
+  	return false;
+      }
+    }
+
     //now getthe data for the rest of the banks
     if(_bmcparts.get())_event.getStructure(*_bmcparts.get());
     if(_bcovmat.get())_event.getStructure(*_bcovmat.get());
@@ -149,6 +233,7 @@ namespace clas12 {
     if(_bft.get())_event.getStructure(*_bft.get());
     if(_bvtp.get())_event.getStructure(*_bvtp.get());
     if(_bscal.get())_event.getStructure(*_bscal.get());
+    if(_bhelonline.get())_event.getStructure(*_bhelonline.get());
 
     for(auto& ibank:_addBanks){//if any additional banks requested get those
       _event.getStructure(*ibank.get());
@@ -164,14 +249,23 @@ namespace clas12 {
     //keep going until we get an event that passes
     bool validEvent=false;
     while(_reader.next()){
+      if(_nevent==_nToProcess){
+	summary();
+	return false; //reached supplied event limit
+      }
+      
       clearEvent();
       _nevent++;
       if(readEvent()){ //got one
 	validEvent=true;
+	_nselected++;
 	break;
       }
     }
-    if(!validEvent) return false;//no more events in reader
+    if(!validEvent){
+      summary();
+      return false;//no more events in reader
+    }
     //can proceed with valid event
     sort();
   
@@ -208,6 +302,7 @@ namespace clas12 {
     _n_rfdets=0;
     _n_rcdets=0;
     _n_rfts=0;
+    _n_rbands=0;
 
     _detParticles.clear();
     _detParticles.reserve(_nparts);
@@ -256,6 +351,19 @@ namespace clas12 {
 	//less particles than this
 	if(_n_rfts==_rfts.size())
 	  addARegionFT();
+	continue;
+      }
+      //Check if BAND particle
+      if(_rbands.empty())addARegionBAND();
+      if(_rbands[_n_rbands]->sort()){
+	//add a FDet particle to the event list
+	_detParticles.emplace_back(_rbands[_n_rbands].get());
+	_n_rbands++;
+	//check if need more vector entries
+	//only required of previous events have
+	//less particles than this
+	if(_n_rbands==_rbands.size())
+	  addARegionBAND();
 	continue;
       }
     }
@@ -313,6 +421,40 @@ namespace clas12 {
 			    {return dr->par()->getCharge()==ch;});
   }
 
+  ////////////////////////////////////////////////////////////////
+  ///Enable QA skimming.
+  /*void clas12reader::applyQA(std::string jsonFilePath){
+#ifdef CLAS_QADB
+    //_runNo may already have been found
+    if(_runNo==0){
+      _runNo=readQuickRunConfig(_filename);
+    }
+    _qa.reset(new qadb_reader(jsonFilePath, _runNo));
+#endif
+}*/
+
+  //////////////////////////////////////////////////////////////
+  ///Returns qadb_reader once declared
+  /*#ifdef CLAS_QADB
+  qadb_reader * clas12reader::getQAReader(){
+    return _qa.get();
+  }
+#endif
+  */
+  ////////////////////////////////////////////////////////////
+  ///connect to the data bases
+  void clas12reader::connectDataBases(clas12databases* db){
+    _db=db;
+    //void clas12reader::connectDataBases(){
+
+    _connectDB=true;
+    
+    // if(_runNo==0){
+    _runNo=readQuickRunConfig(_filename);
+    //}
+    std::cout<<"Connecting databases to run "<<_runNo<<std::endl;
+     if(_runNo!=0)_db->notifyRun(_runNo);
+  }
   /////////////////////////////////////////////////////////
   ///make a list of banks
   void clas12reader::makeListBanks(){
@@ -332,10 +474,9 @@ namespace clas12 {
     if(_btraj.get())_allBanks.push_back(_btraj.get());
     if(_bcher.get())_allBanks.push_back(_bcher.get());
     if(_bft.get())_allBanks.push_back(_bft.get());
+    if(_bvtp.get())_allBanks.push_back(_bvtp.get());
+    
 
-    //Comment in next 2 lines for helicity analysis
-    //if(_bhelonline.get())_allBanks.push_back(*_bhelonline.get());
-    //if(_bhelflip.get())_allBanks.push_back(*_bhelflip.get());
   }
 
 }
