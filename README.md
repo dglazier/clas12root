@@ -5,26 +5,14 @@ Data Analysis Tools for hipo4 data format.
 
 Examples are given for running in interactive ROOT sessions and ROOT-Jupyter notebooks.
 
+## New : from version 1.9.0 an external `hipo` install is required before building clas12root
 
-## Clas12Banks -> Clas12Root
+We now use an external `hipo` repository. This must be pointed at with the environment variable `$HIPO` when installing.
 
-We now use an external hipo4 repository. This must be pointed at with the variable HIPO when installing. The files from hipo/hipo4 will be copied here to Hipo4.
+For convenience, the `hipo` source code is included here in `hipo_src/` as a submodule, and you may compile and install it with `./installHIPO`;
+the default installation location is the top-level directory `hipo/`.
 
-
-A default hipo implementation is now packed with clas12root. If you prefer to use this do not set the enviroment variable HIPO. If you would like to use a different version of the hipo library set HIPO. You may get the most up to data hipo library from
-
-
-For Hipo library see https://github.com/gavalian/hipo
-
-## New : from version 1.9.0 an external hipo install is required before building clas12root
-
-      git clone --recurse-submodules https://github.com/gavalian/hipo
-      cd hipo/
-      git checkout 4.0.1
-      cmake -DCMAKE_INSTALL_PREFIX=$PWD/
-      cmake --build . --target install
-
-The environment variable HIPO must be set to the path of the hipo install.
+You may get the most up to date `hipo` source code from <https://github.com/gavalian/hipo>
 
 ## Clas12Banks and Clas12Root
 
@@ -80,6 +68,12 @@ source ${CCDB_HOME}/environment.csh
 setenv QADB /Where/Is/clas12-qadb (e.g. setenv QADB ${CLAS12ROOT}/clas12-qadb )
 #Preinstalled hipo is a requirement
 setenv HIPO /Where/Is/hipo
+#If you wish to use, you should set a link to iguana
+setenv IGUANA /Where/Is/Iguana
+#We now also need root include path to support these pacakges
+setenv ROOT_INCLUDE_PATH ${HIPO}/include:${IGUANA}/include:${ROOT_INCLUDE_PATH}
+#and if you are using clas12root in other programmes it may help to include it
+setenv ROOT_INCLUDE_PATH ${CLAS12ROOT}/Clas12Banks:${CLAS12ROOT}/Clas12Root:${CLAS12ROOT}/hipo4:${ROOT_INCLUDE_PATH}
 ```
 
 or for bash
@@ -87,14 +81,20 @@ or for bash
 export CLAS12ROOT=$PWD
 export PATH="$PATH":"$CLAS12ROOT/bin"
 #To use the RCDB interface 
-export RCDB_HOME /Where/Is/rcdb
+export RCDB_HOME=/Where/Is/rcdb
 #To use the CCDB interface 
-export CCDB_HOME /Where/Is/ccdb
+export CCDB_HOME=/Where/Is/ccdb
 source ${CCDB_HOME}/environment.csh
 #To use clas12-qadb interface
-export QADB /Where/Is/clas12-qadb
+export QADB=/Where/Is/clas12-qadb
 #Preinstalled hipo is a requirement
-export HIPO /Where/Is/hipo
+export HIPO=/Where/Is/hipo
+#If you wish to use, you should set a link to iguana
+export IGUANA=/Where/Is/Iguana
+#We now also need root include path to support these pacakges
+export ROOT_INCLUDE_PATH=${HIPO}/include:${IGUANA}/include:${ROOT_INCLUDE_PATH}
+#and if you are using clas12root in other programmes it may help to include it
+export ROOT_INCLUDE_PATH=${CLAS12ROOT}/Clas12Banks:${CLAS12ROOT}/Clas12Root:${CLAS12ROOT}/hipo4:${ROOT_INCLUDE_PATH}
 ```
 
 ## To install
@@ -566,3 +566,67 @@ To create a clas12reader and go straight o a particular event in the file,
 
 
 Note the event number is just its position in the file, not the DST RUN::Config::Event.
+
+## Ex 11 Iguana interface
+
+To run iguana routines in clas12root you should first set the environment to point to an
+installed version of iguana, by setting the IGUANA variable to the INSTALLATION directory.
+
+There are 2 methods of using Iguana. For speed and simplicity both use just the iguana
+action function and will not operate on the underlying banks structures.
+In the first method, which can use any iguan algorithm, you just directly create the iguana
+algorithm and run it yourself. See Ex11_Iguana_example_01_bank_rows.C
+
+The second method is though a higher level interface which simplifies the usage, but is not
+garuanteed to be able to use all algorithms. In these cases you may revert to the first method
+to apply any additional algorithms. The interface for this is in the $CLAS12ROOT/iguana/ directory
+and an example is available at Ex11_Iguana_MomentumCorrection.C.
+
+These example use a HipoChain and you will need to set file paths yourself etc.
+Using clas12root:region_particles means that information for
+alogithms is readily available and so we can just pass these particle objects
+into the action functions.
+
+Highlighting the iguana parts for method 2 :
+
+      //clas12root-iguana interface
+      clas12root::Iguana ig;
+
+      //choose some algorithms to apply
+      ig.GetTransformers().Use("clas12::MomentumCorrection");
+      ig.GetFilters().Use("clas12::ZVertexFilter");
+      ig.GetCreators().Use("physics::InclusiveKinematics");
+
+      ig.SetOptionAll("log", "debug");
+      ig.Start();
+
+
+      ...
+      // get particles by type
+      // note we applied a filter to ensure size of all ==1
+      auto electron=c12->getByID(11)[0];
+      auto pip=c12->getByID(211)[0];
+      auto pim=c12->getByID(-211)[0];
+
+      ///Now do some iguana analysis!!
+
+      //filter on z-vertices of the particles
+      //note I can pass a vector of clas12root particles
+      if( !(ig.GetFilters().doZVertexFilter({electron,pip,pim})) ) {
+        continue;
+      }
+
+
+      //correct momentum and get 4-vectors
+      //I pass a vector of clas12root particles and LorentzVectors
+      ig.GetTransformers().doMomentumCorrections({electron,pip,pim},{&p4el,&p4pip,&p4pim});
+
+      //calculate inclusive kinematics
+      //use original bank info
+      auto kine = ig.GetCreators().doInclusiveKinematics(electron);
+      //use momentum corrected momentum
+      auto corrkine = ig.GetCreators().doInclusiveKinematics(p4el);
+
+      ...
+
+
