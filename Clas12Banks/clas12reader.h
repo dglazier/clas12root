@@ -146,6 +146,29 @@ namespace clas12 {
     int getBankOrder(int ibank,std::string itemname ) const{
       return getBank(ibank)->getSchema().getEntryOrder(itemname.data());
     }
+
+    const std::vector<hipo::bank*> getBanksPtrs(std::vector<std::string> names) const{
+      std::vector<hipo::bank*> blist;
+      for(const auto& name:names){
+	//Find this bank in all banks
+	auto it = std::find_if(
+			       _allBanks.begin(),
+			       _allBanks.end(),
+			       [&name](auto* bank)
+			       { return bank->getSchema().getName() == name; });
+	if(it == _allBanks.end()) {
+	  cerr<<"clas12reader::getBanks : bank "<<name<<" does not exist"<<endl;
+	  exit(0);
+	}
+	//make a copy and add to list
+	auto cpBank = dynamic_cast<hipo::bank*>(*it);
+	blist.push_back(cpBank);
+	
+      }
+      cout<<"clas12reader::getBanks  got "<<blist.size()<<endl;
+      return blist;
+    }
+ 
     /////////////////////////////////
     
     std::vector<region_part_ptr>& getDetParticles(){return _detParticles;}
@@ -153,7 +176,7 @@ namespace clas12 {
     std::vector<region_part_ptr> getByID(int id);
     std::vector<region_part_ptr> getByRegion(int ir);
     std::vector<region_part_ptr> getByCharge(int ch);
-    
+
     const std::vector<short>& preCheckPids();
     const std::vector<short>& preCheckPidsOrCharge();
 
@@ -347,14 +370,9 @@ namespace clas12 {
     clas12databases* db(){return _db;};
     
     //clas12-qadb   
-    void applyQA() {
-      // if(_db)
-	if( _db->qa() )
-	  _applyQA=true;
-
-      if( _applyQA==false){
-	std::cout<<"Warning, clas12reader  applyQA() not valid"<<std::endl;
-      }
+    void applyQA(const string& pass) {
+      _applyQA=true;
+      _db->setPass(pass);
     }
  
     //double sumChargeFromQA();
