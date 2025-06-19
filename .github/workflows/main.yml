@@ -2,31 +2,36 @@ name: C++ CI Testing
 
 on: pull_request
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
-build_and_test:
+  build_and_test:
     runs-on: ubuntu-latest
     container: rootproject/root:${{ matrix.version }}
     strategy:
       matrix:
-        version: [6.28.12-ubuntu22.04]
+        version: [6.34.00-ubuntu24.10]
 
     steps:
-      - name: system dependancies
+      - name: system dependencies
         run: |
-          apt update
-          apt -y install git scons python2
+          apt -y update
+          apt -y upgrade
+          apt -y install git python3-pip
+          python -m pip install --break-system-packages meson ninja
 
       - name: checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
-          path: .
 
       - name: set env vars
         run: |
           echo "CLAS12ROOT=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "HIPO=$GITHUB_WORKSPACE/hipo" >> $GITHUB_ENV
-          echo "CCDB_HOME=$GITHUB_WORKSPACE/ccdb" >> $GITHUB_ENV
+          echo "CCDB_HOME=$GITHUB_WORKSPACE/ccdb_install" >> $GITHUB_ENV
           echo "RCDB_HOME=$GITHUB_WORKSPACE/rcdb" >> $GITHUB_ENV
           echo "QADB=$GITHUB_WORKSPACE/clas12-qadb" >> $GITHUB_ENV
 
@@ -36,28 +41,30 @@ build_and_test:
           echo "PATH=$PWD/bin:$CCDB_HOME:$CCDB_HOME/bin:$RCDB_HOME/bin:$RCDB_HOME/cpp/bin:$PATH" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=$RCDB_HOME/cpp/lib:$CCDB_HOME/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
 
-
-      - name: checkout hipo
-        uses: actions/checkout@v4
-        with:
-          repository: gavalian/hipo
-          ref: 4.0.1 # if you want to use a fixed tag; remove if you want to use `main`
-          path: ${HIPO}
+      - name: Create hipo folder
+        run: |
+          mkdir -p $HIPO
 
       - name: build hipo
-        run: |
-          cd $HIPO
-          cmake -DCMAKE_INSTALL_PREFIX=$HIPO
-          cmake --build . --target install
+        run: ./installHIPO $HIPO
 
       - name: build ccdb
         run: |
-          cd $CCDB_HOME
-          bash environment.bash
-          /usr/bin/env python2 $(which scons)
+          cmake -S ccdb -B ccdb_build --install-prefix $CCDB_HOME
+          cmake --build ccdb_build -j4
+          cmake --install ccdb_build
 
+      - name: Install Vdt development libraries
+        run: |
+          apt-get update
+          apt-get install -y libvdt-dev
+        # This is often the primary fix for "Could NOT find Vdt"
+
+      - name: Checkout Clas12Root
+        uses: actions/checkout@v4
       - name: build clas12root
         run: |
+	  echo 'check hipo:'
           ./installC12Root
 
       - name: run example on data file
