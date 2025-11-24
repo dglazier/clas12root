@@ -1,4 +1,8 @@
-mkdir build
-cd build
-cmake ../
-make install
+#!/usr/bin/env bash
+# build and install clas12root
+# - additional arguments will be passed to `cmake`, such as build options
+set -euo pipefail
+srcdir=$(cd $(dirname ${BASH_SOURCE[0]:-$0}) && pwd -P)
+cmake -B build -S $srcdir -DCMAKE_INSTALL_PREFIX=$srcdir "$@"
+cmake --build build
+cmake --install build
